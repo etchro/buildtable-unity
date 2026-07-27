@@ -1,0 +1,17 @@
+# This repo is a UPM package, not a Unity project — there is no Library/ or
+# Temp/ here. These entries only matter if you drop the package inside a test
+# project for development.
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+*.csproj
+*.sln
+*.user
+*.userprefs
+.DS_Store
+.vscode/
+.idea/

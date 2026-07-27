@@ -1,0 +1,28 @@
+{
+  "name": "app.buildtable.sdk",
+  "version": "0.1.0",
+  "displayName": "Buildtable SDK",
+  "description": "In-game bug reporting, playtest forms, and build stamping for Buildtable (buildtable.app).",
+  "unity": "2021.3",
+  "documentationUrl": "https://buildtable.app",
+  "keywords": [
+    "buildtable",
+    "bug-reporting",
+    "playtesting",
+    "qa"
+  ],
+  "author": {
+    "name": "Buildtable",
+    "url": "https://buildtable.app"
+  },
+  "dependencies": {
+    "com.unity.ugui": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Bug Reporter Demo",
+      "description": "Minimal scene-free example: opens the reporter from script and submits a report.",
+      "path": "Samples~/BugReporterDemo"
+    }
+  ]
+}
