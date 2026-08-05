@@ -19,12 +19,13 @@ In Unity: **Window → Package Manager → + → Add package from git URL…**, 
 this, and hit **Add**:
 
 ```
-https://github.com/etchro/buildtable-unity.git
+https://github.com/etchro/buildtable-unity.git#v0.2.0
 ```
 
 That's it — no download, no unzipping, no `.unitypackage`. Unity fetches it and
-it shows up under *Packages* in your Project window. Updating later is
-**Package Manager → Buildtable SDK → Update**.
+it shows up under *Packages* in your Project window. To update later, paste the
+URL again with the new tag — releases are listed in the
+[changelog](CHANGELOG.md).
 
 <details>
 <summary>Prefer editing the manifest, or pinning a version?</summary>
@@ -34,14 +35,14 @@ Add it to `Packages/manifest.json` yourself:
 ```json
 {
   "dependencies": {
-    "app.buildtable.sdk": "https://github.com/etchro/buildtable-unity.git"
+    "app.buildtable.sdk": "https://github.com/etchro/buildtable-unity.git#v0.2.0"
   }
 }
 ```
 
-Append `#v0.2.0` (or any tag) to pin a specific release instead of tracking
-`main`. Recommended once you're past prototyping — an unpinned git dependency can
-change under you mid-playtest.
+Drop the `#v0.2.0` to track `main` instead of a pinned release. Not recommended
+once you're past prototyping — an unpinned git dependency can change under you
+mid-playtest.
 </details>
 
 **Requires git on your machine.** Unity shells out to it for git-URL packages. If
