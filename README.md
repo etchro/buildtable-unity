@@ -16,7 +16,7 @@ Requires Unity **2021.3 LTS** or newer.
 Package Manager → **Add package from git URL…**:
 
 ```
-https://github.com/<your-org>/buildtable-unity.git
+https://github.com/etchro/buildtable-unity.git
 ```
 
 Or add it to `Packages/manifest.json`:
@@ -24,7 +24,7 @@ Or add it to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "app.buildtable.sdk": "https://github.com/<your-org>/buildtable-unity.git"
+    "app.buildtable.sdk": "https://github.com/etchro/buildtable-unity.git"
   }
 }
 ```
@@ -93,12 +93,51 @@ Buildtable.Initialize().ReportFailed    += reason => Debug.LogWarning(reason);
 | Title, description, steps, priority | The tester |
 | Reporter name / email | Remembered between sessions |
 | Screenshot | Frame captured *before* the form is drawn, downscaled and JPEG-encoded |
-| Recent logs | Ring buffer of `Application.logMessageReceivedThreaded`, appended to the description |
+| Recent logs | Ring buffer of `Application.logMessageReceivedThreaded`, appended to the description — **off by default** |
 | Device info | `SystemInfo` + `Application`: OS, CPU, GPU, memory, resolution, quality level, scene, playtime |
+| Custom fields | Whatever you set with `Buildtable.SetCustomField` |
 | Version | From the build stamp, when one exists (see Roadmap → Milestone D) |
 
-Logs currently ride along in the description because the API has no dedicated log
-field yet; that moves to the events endpoint with Milestone C.
+### Log forwarding is opt-in
+
+`includeRecentLogs` defaults to **off**. A log tail can contain player names,
+absolute file paths, and anything else your game happens to log, so it is only
+attached once you turn it on in the config.
+
+When it is on, the tail rides along in the description. That is a stopgap: the
+API's `/api/v1/events` endpoint accepts `log_batch` and `crash` events with a
+structured payload, and moving logs there — batched, out of the description, and
+attributable to a session — is the next thing worth building.
+
+## Customising the form
+
+The overlay is built in code, but its look and contents come from the config
+asset rather than the source, so a project can restyle it without forking:
+
+| Setting | Purpose |
+|---|---|
+| `formTitle` / `formSubtitle` / `submitButtonLabel` | Copy. An empty subtitle hides the line entirely |
+| `accentColor` | Submit button, checkmark, selected priority |
+| `panelColor` / `fieldColor` / `textColor` / `mutedTextColor` | The rest of the palette |
+| `scrimOpacity` | How much the game behind is dimmed. 0 leaves it fully visible |
+| `panelWidth` | Form width in 1920×1080 reference pixels |
+| `sortingOrder` | Raise it if the form lands behind your own UI |
+| `showStepsToRepro` / `showPriority` / `showReporterIdentity` | Drop fields you don't want. The form resizes to fit whatever is left |
+
+Attach your own metadata to every report:
+
+```csharp
+Buildtable.SetCustomField("branch", "feature/elevators");
+Buildtable.SetCustomField("saveSlot", saveSlot.ToString());
+```
+
+Keys must match a custom field defined on your project's bug board — the server
+drops values for keys it doesn't recognise. Per-report values can also be passed
+on the draft via `CustomFields`, and those win over the defaults above.
+
+If you need a form this doesn't cover, turn `hotkeyEnabled` off and build your
+own UI on top of `Buildtable.SubmitBugReport(draft)` — the queue, retry, upload,
+and device-info paths are all independent of the overlay.
 
 ## Offline behaviour
 
@@ -111,6 +150,11 @@ The queue retries on a timer (default 60s) and on startup. Transient failures
 (offline, timeout, 429, 5xx) are retried; permanent rejections (bad key, invalid
 payload) are logged and dropped rather than retried forever. The queue is capped
 (default 25 reports) so a build pointed at a dead server can't fill a disk.
+
+Each retry backs off exponentially from the sweep interval, capped at an hour,
+and a report is discarded after `maxSendAttempts` (default 10). A server that
+keeps returning 429 therefore costs a bounded number of requests rather than one
+per minute forever.
 
 ## Rate limits
 
@@ -137,9 +181,13 @@ it with **Tools → Buildtable → Reset Install Id**.
 | `maxScreenshotDimension` | 1920 | Longest edge; keeps files well under the 5 MB server cap |
 | `screenshotQuality` | 85 | JPEG quality |
 | `includeDeviceInfo` | on | |
-| `includeRecentLogs` / `logBufferSize` | on / 100 | |
+| `includeRecentLogs` / `logBufferSize` | **off** / 100 | Opt-in; see above |
 | `maxQueuedReports` | 25 | Oldest dropped past the cap |
-| `retryIntervalSeconds` | 60 | |
+| `retryIntervalSeconds` | 60 | Sweep interval; failures back off exponentially from it |
+| `maxSendAttempts` | 10 | Report discarded after this many failures |
+
+Appearance and form-field settings are listed under
+[Customising the form](#customising-the-form).
 
 ## Input System support
 
@@ -153,7 +201,7 @@ your own input handling instead.
 
 - **A — bug reporter** — shipped in 0.1.0
 - **B — playtest forms** — fetch a session's schema from `/api/v1/playtests/active`, render it natively, submit at quit or checkpoint
-- **C — auto-capture** — opt-in log/crash batches and custom events via `/api/v1/events`. Opt-in stays the default; the capability exists for when it's wanted, not to stream everything by default
+- **C — auto-capture** — log/crash batches and custom events via `/api/v1/events`. The endpoint is already live server-side (`log_batch`, `crash`, `custom`, batches of up to 100); only the Unity side is missing. Opt-in stays the default — the capability exists for when it's wanted, not to stream everything by default
 - **D — build hook** — `IPreprocessBuildWithReport` registers the build via `/api/v1/builds` with a secret key and stamps the id into StreamingAssets, so every payload is version-tagged. The runtime reader for that stamp already ships
 - **E — Editor bug browser** — read the board from `GET /api/v1/bugs`
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -11,22 +12,43 @@ namespace BuildtableSdk
     /// No prefabs, no UXML, no fonts of our own: a drop-in SDK shouldn't ask a
     /// project to import assets or add packages before its first report works,
     /// and a code-built canvas renders identically on every 2021.3+ project.
+    ///
+    /// Colours, copy, and which fields appear all come from
+    /// <see cref="BuildtableConfig"/>, so a project can make the form look like
+    /// its own UI without forking this file.
     /// </summary>
     public class BuildtableBugReportOverlay : MonoBehaviour
     {
-        private static readonly Color PanelColor = new Color(0.09f, 0.09f, 0.11f, 0.98f);
-        private static readonly Color ScrimColor = new Color(0f, 0f, 0f, 0.55f);
-        private static readonly Color FieldColor = new Color(0.16f, 0.16f, 0.19f, 1f);
-        private static readonly Color TextColor = new Color(0.92f, 0.92f, 0.94f, 1f);
-        private static readonly Color MutedColor = new Color(0.62f, 0.62f, 0.68f, 1f);
-        private static readonly Color AccentColor = new Color(0.36f, 0.45f, 0.95f, 1f);
+        private const float ContentPadding = 24f;
+        private const float ActionsHeight = 40f;
+        private const float ActionsSpacing = 16f;
 
         private static readonly string[] Priorities = { "critical", "high", "medium", "low" };
 
+        /// <summary>
+        /// One stacked row. The layout is a top-down cursor rather than a layout
+        /// group: nested multiline input fields fight ContentSizeFitter, and a
+        /// cursor is trivial to recompute when a row is hidden.
+        /// </summary>
+        private struct Row
+        {
+            public RectTransform Rect;
+            public float Height;
+            public float SpacingAfter;
+            /// <summary>Only laid out when the report actually has a screenshot.</summary>
+            public bool PreviewOnly;
+        }
+
         private BuildtableBugReporter _reporter;
+        private BuildtableConfig _config;
         private Font _font;
 
+        private readonly List<Row> _rows = new List<Row>();
+
         private GameObject _root;
+        private RectTransform _panelRect;
+        private RectTransform _previewRow;
+        private Image _previewImage;
         private InputField _titleField;
         private InputField _descriptionField;
         private InputField _stepsField;
@@ -35,7 +57,7 @@ namespace BuildtableSdk
         private Toggle _includeScreenshotToggle;
         private Text _statusText;
         private Button _submitButton;
-        private readonly Button[] _priorityButtons = new Button[4];
+        private Button[] _priorityButtons = Array.Empty<Button>();
 
         private byte[] _screenshot;
         private Texture2D _previewTexture;
@@ -53,6 +75,7 @@ namespace BuildtableSdk
             go.transform.SetParent(reporter.transform, false);
             var overlay = go.AddComponent<BuildtableBugReportOverlay>();
             overlay._reporter = reporter;
+            overlay._config = reporter.Config;
             overlay.Build();
             return overlay;
         }
@@ -65,30 +88,30 @@ namespace BuildtableSdk
         public void Open(byte[] screenshot)
         {
             _screenshot = screenshot;
-            SetStatus("", MutedColor);
+            SetStatus("", _config.mutedTextColor);
 
             _titleField.text = "";
             _descriptionField.text = "";
-            _stepsField.text = "";
-            _nameField.text = BuildtableInstall.ReporterName;
-            _emailField.text = BuildtableInstall.ReporterEmail;
+            if (_stepsField != null) _stepsField.text = "";
+            if (_nameField != null) _nameField.text = BuildtableInstall.ReporterName;
+            if (_emailField != null) _emailField.text = BuildtableInstall.ReporterEmail;
             SetPriority("medium");
             _submitButton.interactable = true;
 
             ShowPreview(screenshot);
 
             var pending = _reporter.PendingReportCount;
-            if (pending > 0) SetStatus($"{pending} earlier report(s) still waiting to send.", MutedColor);
+            if (pending > 0) SetStatus($"{pending} earlier report(s) still waiting to send.", _config.mutedTextColor);
 
             _root.SetActive(true);
 
-            if (_reporter.Config.pauseWhileOpen)
+            if (_config.pauseWhileOpen)
             {
                 _previousTimeScale = Time.timeScale;
                 Time.timeScale = 0f;
             }
 
-            if (_reporter.Config.releaseCursorWhileOpen)
+            if (_config.releaseCursorWhileOpen)
             {
                 _previousCursorLock = Cursor.lockState;
                 _previousCursorVisible = Cursor.visible;
@@ -104,8 +127,8 @@ namespace BuildtableSdk
             if (_root == null || !_root.activeSelf) return;
             _root.SetActive(false);
 
-            if (_reporter.Config.pauseWhileOpen) Time.timeScale = _previousTimeScale;
-            if (_reporter.Config.releaseCursorWhileOpen)
+            if (_config.pauseWhileOpen) Time.timeScale = _previousTimeScale;
+            if (_config.releaseCursorWhileOpen)
             {
                 Cursor.lockState = _previousCursorLock;
                 Cursor.visible = _previousCursorVisible;
@@ -129,10 +152,10 @@ namespace BuildtableSdk
             {
                 Title = _titleField.text,
                 Description = _descriptionField.text,
-                StepsToRepro = _stepsField.text,
+                StepsToRepro = _stepsField != null ? _stepsField.text : null,
                 Priority = _priority,
-                ReporterName = _nameField.text,
-                ReporterEmail = _emailField.text,
+                ReporterName = _nameField != null ? _nameField.text : null,
+                ReporterEmail = _emailField != null ? _emailField.text : null,
                 Screenshot = _includeScreenshotToggle.isOn ? _screenshot : null,
             };
 
@@ -156,8 +179,7 @@ namespace BuildtableSdk
 
             var canvas = _root.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            // Above typical game HUDs, below Unity's own debug overlays.
-            canvas.sortingOrder = 30000;
+            canvas.sortingOrder = _config.sortingOrder;
 
             var scaler = _root.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -166,36 +188,32 @@ namespace BuildtableSdk
 
             EnsureEventSystem();
 
-            var scrim = CreateImage(_root.transform, "Scrim", ScrimColor);
+            var scrim = CreateImage(_root.transform, "Scrim", new Color(0f, 0f, 0f, _config.scrimOpacity));
             Stretch(scrim.rectTransform);
 
-            var panel = CreateImage(_root.transform, "Panel", PanelColor);
-            var panelRect = panel.rectTransform;
-            panelRect.anchorMin = panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(760, 700);
+            var panel = CreateImage(_root.transform, "Panel", _config.panelColor);
+            _panelRect = panel.rectTransform;
+            _panelRect.anchorMin = _panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            _panelRect.pivot = new Vector2(0.5f, 0.5f);
 
             var content = new GameObject("Content", typeof(RectTransform)).GetComponent<RectTransform>();
-            content.SetParent(panelRect, false);
-            Stretch(content, 24);
+            content.SetParent(_panelRect, false);
+            Stretch(content, ContentPadding);
 
-            // Simple top-down cursor layout: predictable, and avoids the layout
-            // group / content-size-fitter interplay that tends to fight nested
-            // multiline input fields.
-            var y = 0f;
+            var heading = CreateText(content, "Heading", _config.formTitle, 26, _config.textColor, FontStyle.Bold);
+            AddRow(heading.rectTransform, 34, 4);
 
-            var heading = CreateText(content, "Heading", "Report a bug", 26, TextColor, FontStyle.Bold);
-            Place(heading.rectTransform, y, 34);
-            y += 34 + 4;
+            if (!string.IsNullOrEmpty(_config.formSubtitle))
+            {
+                var subheading = CreateText(content, "Subheading", _config.formSubtitle, 15, _config.mutedTextColor);
+                AddRow(subheading.rectTransform, 22, 14);
+            }
 
-            var subheading = CreateText(content, "Subheading", "Sent to your team's Buildtable board.", 15, MutedColor);
-            Place(subheading.rectTransform, y, 22);
-            y += 22 + 14;
-
-            // Screenshot row — collapses entirely when there is nothing to show.
+            // Screenshot row. Registered as preview-only so a text-only report
+            // closes the gap instead of leaving a hole under the heading.
             _previewRow = new GameObject("PreviewRow", typeof(RectTransform)).GetComponent<RectTransform>();
             _previewRow.SetParent(content, false);
-            Place(_previewRow, y, 116);
+            AddRow(_previewRow, 116, 12, previewOnly: true);
 
             _previewImage = CreateImage(_previewRow, "Preview", Color.white);
             _previewImage.rectTransform.anchorMin = new Vector2(0, 0);
@@ -206,75 +224,109 @@ namespace BuildtableSdk
             _previewImage.preserveAspect = true;
 
             _includeScreenshotToggle = CreateToggle(_previewRow, "IncludeScreenshot", "Include this screenshot", 220);
-            y += 116 + 12;
 
-            _titleField = AddLabeledField(content, ref y, "Title *", 36, false, "Short summary of the problem");
-            _descriptionField = AddLabeledField(content, ref y, "What happened?", 92, true, "What you saw, and what you expected");
-            _stepsField = AddLabeledField(content, ref y, "Steps to reproduce", 74, true, "1. …\n2. …");
+            _titleField = AddLabeledField(content, "Title *", 36, false, "Short summary of the problem");
+            _descriptionField = AddLabeledField(content, "What happened?", 92, true, "What you saw, and what you expected");
 
-            var priorityLabel = CreateText(content, "PriorityLabel", "Priority", 15, MutedColor);
-            Place(priorityLabel.rectTransform, y, 20);
-            y += 20 + 4;
-
-            var priorityRow = new GameObject("PriorityRow", typeof(RectTransform)).GetComponent<RectTransform>();
-            priorityRow.SetParent(content, false);
-            Place(priorityRow, y, 34);
-            for (var i = 0; i < Priorities.Length; i++)
+            if (_config.showStepsToRepro)
             {
-                var priority = Priorities[i];
-                var button = CreateButton(priorityRow, priority, Capitalize(priority), () => SetPriority(priority));
-                var rect = button.GetComponent<RectTransform>();
-                rect.anchorMin = new Vector2(0, 0);
-                rect.anchorMax = new Vector2(0, 1);
-                rect.pivot = new Vector2(0, 0.5f);
-                rect.sizeDelta = new Vector2(120, 0);
-                rect.anchoredPosition = new Vector2(i * 126, 0);
-                _priorityButtons[i] = button;
+                _stepsField = AddLabeledField(content, "Steps to reproduce", 74, true, "1. …\n2. …");
             }
-            y += 34 + 14;
 
-            // Reporter identity, remembered between reports.
-            var identityRow = new GameObject("IdentityRow", typeof(RectTransform)).GetComponent<RectTransform>();
-            identityRow.SetParent(content, false);
-            Place(identityRow, y, 36);
-            _nameField = CreateInputField(identityRow, "Name", "Your name", false);
-            HalfWidth(_nameField.GetComponent<RectTransform>(), 0);
-            _emailField = CreateInputField(identityRow, "Email", "Your email", false);
-            HalfWidth(_emailField.GetComponent<RectTransform>(), 1);
-            _emailField.contentType = InputField.ContentType.EmailAddress;
-            y += 36 + 14;
+            if (_config.showPriority)
+            {
+                var priorityLabel = CreateText(content, "PriorityLabel", "Priority", 15, _config.mutedTextColor);
+                AddRow(priorityLabel.rectTransform, 20, 4);
 
-            _statusText = CreateText(content, "Status", "", 14, MutedColor);
-            Place(_statusText.rectTransform, y, 20);
+                var priorityRow = new GameObject("PriorityRow", typeof(RectTransform)).GetComponent<RectTransform>();
+                priorityRow.SetParent(content, false);
+                AddRow(priorityRow, 34, 14);
 
-            // Actions pinned to the bottom of the panel rather than the cursor,
-            // so they stay put regardless of what the rows above did.
+                _priorityButtons = new Button[Priorities.Length];
+                for (var i = 0; i < Priorities.Length; i++)
+                {
+                    var priority = Priorities[i];
+                    var button = CreateButton(priorityRow, priority, Capitalize(priority), () => SetPriority(priority));
+                    var rect = button.GetComponent<RectTransform>();
+                    rect.anchorMin = new Vector2(0, 0);
+                    rect.anchorMax = new Vector2(0, 1);
+                    rect.pivot = new Vector2(0, 0.5f);
+                    rect.sizeDelta = new Vector2(120, 0);
+                    rect.anchoredPosition = new Vector2(i * 126, 0);
+                    _priorityButtons[i] = button;
+                }
+            }
+
+            if (_config.showReporterIdentity)
+            {
+                var identityRow = new GameObject("IdentityRow", typeof(RectTransform)).GetComponent<RectTransform>();
+                identityRow.SetParent(content, false);
+                AddRow(identityRow, 36, 14);
+
+                _nameField = CreateInputField(identityRow, "Name", "Your name", false);
+                HalfWidth(_nameField.GetComponent<RectTransform>(), 0);
+                _emailField = CreateInputField(identityRow, "Email", "Your email", false);
+                HalfWidth(_emailField.GetComponent<RectTransform>(), 1);
+                _emailField.contentType = InputField.ContentType.EmailAddress;
+            }
+
+            _statusText = CreateText(content, "Status", "", 14, _config.mutedTextColor);
+            AddRow(_statusText.rectTransform, 20, 0);
+
+            // Actions pinned to the bottom of the content rect. ApplyLayout sizes
+            // the panel so this band never lands on top of the rows above it.
             var actions = new GameObject("Actions", typeof(RectTransform)).GetComponent<RectTransform>();
             actions.SetParent(content, false);
             actions.anchorMin = new Vector2(0, 0);
             actions.anchorMax = new Vector2(1, 0);
             actions.pivot = new Vector2(0.5f, 0);
             actions.anchoredPosition = Vector2.zero;
-            actions.sizeDelta = new Vector2(0, 40);
+            actions.sizeDelta = new Vector2(0, ActionsHeight);
 
             var cancel = CreateButton(actions, "Cancel", "Cancel (Esc)", Close);
             AnchorRight(cancel.GetComponent<RectTransform>(), 150, 158);
 
-            _submitButton = CreateButton(actions, "Submit", "Send report", Submit, AccentColor);
+            _submitButton = CreateButton(actions, "Submit", _config.submitButtonLabel, Submit, _config.accentColor);
             AnchorRight(_submitButton.GetComponent<RectTransform>(), 150, 0);
 
+            ApplyLayout(false);
             _root.SetActive(false);
         }
 
-        private RectTransform _previewRow;
-        private Image _previewImage;
+        private void AddRow(RectTransform rect, float height, float spacingAfter, bool previewOnly = false)
+        {
+            _rows.Add(new Row { Rect = rect, Height = height, SpacingAfter = spacingAfter, PreviewOnly = previewOnly });
+        }
+
+        /// <summary>
+        /// Stacks every visible row from the top of the content rect and sizes the
+        /// panel to exactly fit them plus the action bar. Recomputed on each open
+        /// because the screenshot row's visibility isn't known until then.
+        /// </summary>
+        private void ApplyLayout(bool hasScreenshot)
+        {
+            var y = 0f;
+            foreach (var row in _rows)
+            {
+                var visible = !row.PreviewOnly || hasScreenshot;
+                row.Rect.gameObject.SetActive(visible);
+                if (!visible) continue;
+
+                Place(row.Rect, y, row.Height);
+                y += row.Height + row.SpacingAfter;
+            }
+
+            var height = ContentPadding * 2 + y + ActionsSpacing + ActionsHeight;
+            _panelRect.sizeDelta = new Vector2(_config.panelWidth, height);
+        }
 
         private void ShowPreview(byte[] screenshot)
         {
             ReleasePreview();
 
             var hasScreenshot = screenshot != null && screenshot.Length > 0;
-            _previewRow.gameObject.SetActive(hasScreenshot);
+            ApplyLayout(hasScreenshot);
+
             if (!hasScreenshot)
             {
                 _includeScreenshotToggle.isOn = false;
@@ -315,7 +367,7 @@ namespace BuildtableSdk
             for (var i = 0; i < _priorityButtons.Length; i++)
             {
                 var image = _priorityButtons[i].GetComponent<Image>();
-                image.color = Priorities[i] == priority ? AccentColor : FieldColor;
+                image.color = Priorities[i] == priority ? _config.accentColor : _config.fieldColor;
             }
         }
 
@@ -327,29 +379,27 @@ namespace BuildtableSdk
 
         // ------------------------------------------------------ UI helpers
 
-        private InputField AddLabeledField(RectTransform parent, ref float y, string label, float height, bool multiline, string placeholder)
+        private InputField AddLabeledField(RectTransform parent, string label, float height, bool multiline, string placeholder)
         {
-            var labelText = CreateText(parent, label + "Label", label, 15, MutedColor);
-            Place(labelText.rectTransform, y, 20);
-            y += 20 + 4;
+            var labelText = CreateText(parent, label + "Label", label, 15, _config.mutedTextColor);
+            AddRow(labelText.rectTransform, 20, 4);
 
             var field = CreateInputField(parent, label + "Field", placeholder, multiline);
-            Place(field.GetComponent<RectTransform>(), y, height);
-            y += height + 12;
+            AddRow(field.GetComponent<RectTransform>(), height, 12);
             return field;
         }
 
         private InputField CreateInputField(RectTransform parent, string name, string placeholder, bool multiline)
         {
-            var background = CreateImage(parent, name, FieldColor);
+            var background = CreateImage(parent, name, _config.fieldColor);
             var field = background.gameObject.AddComponent<InputField>();
 
-            var textComponent = CreateText(background.rectTransform, "Text", "", 16, TextColor);
+            var textComponent = CreateText(background.rectTransform, "Text", "", 16, _config.textColor);
             Stretch(textComponent.rectTransform, 10, 6);
             textComponent.alignment = multiline ? TextAnchor.UpperLeft : TextAnchor.MiddleLeft;
             textComponent.supportRichText = false;
 
-            var placeholderText = CreateText(background.rectTransform, "Placeholder", placeholder, 16, MutedColor);
+            var placeholderText = CreateText(background.rectTransform, "Placeholder", placeholder, 16, _config.mutedTextColor);
             Stretch(placeholderText.rectTransform, 10, 6);
             placeholderText.alignment = textComponent.alignment;
             placeholderText.fontStyle = FontStyle.Italic;
@@ -376,16 +426,16 @@ namespace BuildtableSdk
 
             var toggle = go.AddComponent<Toggle>();
 
-            var box = CreateImage(rect, "Box", FieldColor);
+            var box = CreateImage(rect, "Box", _config.fieldColor);
             box.rectTransform.anchorMin = new Vector2(0, 0.5f);
             box.rectTransform.anchorMax = new Vector2(0, 0.5f);
             box.rectTransform.pivot = new Vector2(0, 0.5f);
             box.rectTransform.sizeDelta = new Vector2(22, 22);
 
-            var check = CreateImage(box.rectTransform, "Check", AccentColor);
+            var check = CreateImage(box.rectTransform, "Check", _config.accentColor);
             Stretch(check.rectTransform, 4, 4);
 
-            var text = CreateText(rect, "Label", label, 15, TextColor);
+            var text = CreateText(rect, "Label", label, 15, _config.textColor);
             text.rectTransform.anchorMin = new Vector2(0, 0);
             text.rectTransform.anchorMax = new Vector2(1, 1);
             text.rectTransform.offsetMin = new Vector2(30, 0);
@@ -406,12 +456,12 @@ namespace BuildtableSdk
 
         private Button CreateButton(RectTransform parent, string name, string label, Action onClick, Color? color = null)
         {
-            var image = CreateImage(parent, name, color ?? FieldColor);
+            var image = CreateImage(parent, name, color ?? _config.fieldColor);
             var button = image.gameObject.AddComponent<Button>();
             button.targetGraphic = image;
             button.onClick.AddListener(() => onClick());
 
-            var text = CreateText(image.rectTransform, "Label", label, 16, TextColor);
+            var text = CreateText(image.rectTransform, "Label", label, 16, _config.textColor);
             Stretch(text.rectTransform);
             text.alignment = TextAnchor.MiddleCenter;
             return button;

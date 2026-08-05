@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace BuildtableSdk
@@ -106,5 +107,23 @@ namespace BuildtableSdk
             BuildtableInstall.ReporterName = name;
             BuildtableInstall.ReporterEmail = email;
         }
+
+        /// <summary>
+        /// Values attached to every subsequent report — the build's branch, the
+        /// player's save slot, whatever your board defines. Keys must match a
+        /// custom field on the project's bug board; anything else is dropped
+        /// server-side.
+        /// </summary>
+        internal static readonly Dictionary<string, string> DefaultCustomFields = new Dictionary<string, string>();
+
+        /// <summary>Sets a custom field value for every later report. A null value clears it.</summary>
+        public static void SetCustomField(string key, string value)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (value == null) DefaultCustomFields.Remove(key);
+            else DefaultCustomFields[key] = value;
+        }
+
+        public static void ClearCustomFields() => DefaultCustomFields.Clear();
     }
 }

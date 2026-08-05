@@ -4,7 +4,10 @@
   "displayName": "Buildtable SDK",
   "description": "In-game bug reporting, playtest forms, and build stamping for Buildtable (buildtable.app).",
   "unity": "2021.3",
+  "license": "MIT",
   "documentationUrl": "https://buildtable.app",
+  "changelogUrl": "https://github.com/etchro/buildtable-unity/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/etchro/buildtable-unity/blob/main/LICENSE.md",
   "keywords": [
     "buildtable",
     "bug-reporting",

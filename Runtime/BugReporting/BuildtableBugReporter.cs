@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace BuildtableSdk
@@ -154,9 +155,10 @@ namespace BuildtableSdk
                 var logs = _logBuffer.Snapshot();
                 if (!string.IsNullOrEmpty(logs))
                 {
-                    // The API has no dedicated log column yet (that arrives with
-                    // Milestone C's events endpoint), so the tail rides along in
-                    // the description where a developer will actually see it.
+                    // Stopgap: the tail rides along in the description where a
+                    // developer will actually see it. POST /api/v1/events already
+                    // accepts structured log_batch payloads server-side — moving
+                    // logs there is Milestone C's job, not this path's.
                     description = string.IsNullOrEmpty(description)
                         ? "Recent logs:\n" + logs
                         : description + "\n\n--- Recent logs ---\n" + logs;
@@ -175,6 +177,7 @@ namespace BuildtableSdk
                 reporterEmail = draft.ReporterEmail?.Trim(),
                 versionId = BuildtableBuildStamp.Current?.buildId,
                 deviceInfoJson = _config.includeDeviceInfo ? BuildtableDeviceInfo.BuildFragment() : null,
+                customFields = BuildCustomFields(draft.CustomFields),
             };
 
             // Persist before the first attempt, not after the first failure.
@@ -184,6 +187,29 @@ namespace BuildtableSdk
             if (!string.IsNullOrEmpty(draft.ReporterEmail)) BuildtableInstall.ReporterEmail = draft.ReporterEmail;
 
             FlushQueue();
+        }
+
+        /// <summary>
+        /// Merges the draft's fields over the defaults set with
+        /// <see cref="Buildtable.SetCustomField"/>, into the flat list the queue
+        /// record can serialize.
+        /// </summary>
+        private static List<BuildtableCustomField> BuildCustomFields(Dictionary<string, string> fromDraft)
+        {
+            var merged = new Dictionary<string, string>(Buildtable.DefaultCustomFields);
+            if (fromDraft != null)
+            {
+                foreach (var pair in fromDraft) merged[pair.Key] = pair.Value;
+            }
+
+            if (merged.Count == 0) return null;
+
+            var list = new List<BuildtableCustomField>(merged.Count);
+            foreach (var pair in merged)
+            {
+                list.Add(new BuildtableCustomField { key = pair.Key, value = pair.Value });
+            }
+            return list;
         }
 
         /// <summary>Retries every queued report. No-op while a send is already in flight.</summary>
@@ -201,6 +227,10 @@ namespace BuildtableSdk
             {
                 foreach (var report in _queue.LoadAll())
                 {
+                    // A report that has already failed is on its own backoff
+                    // schedule; the sweep interval only decides how often we look.
+                    if (!report.IsDueForRetry(_config.retryIntervalSeconds)) continue;
+
                     var keepGoing = true;
                     yield return SendRoutine(report, transient => keepGoing = !transient);
                     // A transient failure means the network is down; the rest of
@@ -217,6 +247,7 @@ namespace BuildtableSdk
         private IEnumerator SendRoutine(BuildtableQueuedReport report, Action<bool> onTransientFailure)
         {
             report.attempts++;
+            report.lastAttemptUtcTicks = DateTime.UtcNow.Ticks;
 
             // Step 1 — upload the screenshot, if this report still has one and
             // hasn't already uploaded it on an earlier attempt.
@@ -246,7 +277,7 @@ namespace BuildtableSdk
                     }
                     else if (uploadResult.Retryable)
                     {
-                        Debug.LogWarning($"[Buildtable] Screenshot upload failed ({uploadResult}); will retry.");
+                        RetryLater(report, $"Screenshot upload failed ({uploadResult})", uploadResult.ErrorMessage);
                         onTransientFailure?.Invoke(true);
                         yield break;
                     }
@@ -279,9 +310,7 @@ namespace BuildtableSdk
 
             if (bugResult.Retryable)
             {
-                _queue.Save(report);
-                Debug.LogWarning($"[Buildtable] Report delivery failed ({bugResult}); queued for retry.");
-                ReportFailed?.Invoke(bugResult.ErrorMessage);
+                RetryLater(report, $"Report delivery failed ({bugResult})", bugResult.ErrorMessage);
                 onTransientFailure?.Invoke(true);
                 yield break;
             }
@@ -292,6 +321,27 @@ namespace BuildtableSdk
             _queue.Remove(report);
             ReportFailed?.Invoke(bugResult.ErrorMessage);
             onTransientFailure?.Invoke(false);
+        }
+
+        /// <summary>
+        /// Records a transient failure: persist the attempt count so the backoff
+        /// grows, or give up once the report has burned through its attempts.
+        /// Without the cap a permanently rate-limited report retries forever.
+        /// </summary>
+        private void RetryLater(BuildtableQueuedReport report, string context, string reason)
+        {
+            if (report.attempts >= Mathf.Max(1, _config.maxSendAttempts))
+            {
+                Debug.LogError(
+                    $"[Buildtable] {context}. Giving up after {report.attempts} attempts; report discarded.");
+                _queue.Remove(report);
+                ReportFailed?.Invoke(reason);
+                return;
+            }
+
+            _queue.Save(report);
+            Debug.LogWarning($"[Buildtable] {context}; queued for retry (attempt {report.attempts}).");
+            ReportFailed?.Invoke(reason);
         }
     }
 }

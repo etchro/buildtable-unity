@@ -3,6 +3,31 @@
 All notable changes to this package are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Appearance settings on `BuildtableConfig`: form copy, accent/panel/field/text
+  colours, scrim opacity, panel width, and canvas sorting order.
+- Form-field toggles (`showStepsToRepro`, `showPriority`, `showReporterIdentity`).
+  The overlay now measures itself from whatever rows remain.
+- `Buildtable.SetCustomField` / `ClearCustomFields`, plus `CustomFields` on the
+  draft, wired to the `customFields` object `POST /api/v1/bugs` already accepts.
+- `maxSendAttempts` config, exponential retry backoff (capped at an hour), and
+  `lastAttemptUtcTicks` on the queue record.
+- MIT `LICENSE.md`, plus `license`/`licensesUrl`/`changelogUrl` in `package.json`.
+
+### Changed
+- **Log forwarding is now opt-in.** `includeRecentLogs` defaults to off — a log
+  tail can carry player names and absolute paths, so it should be a decision, not
+  a default.
+- The overlay's layout is computed rather than hand-tuned, and the panel is sized
+  to its content.
+
+### Fixed
+- The action bar overlapped the identity fields and status line: content stacked
+  to 654px inside a 652px panel, with the buttons pinned over the last two rows.
+- A report with no screenshot left the preview row's 128px of dead space behind.
+
 ## [0.1.0] — 2026-07-27
 
 Initial release: Milestone A, in-game bug reporting.
