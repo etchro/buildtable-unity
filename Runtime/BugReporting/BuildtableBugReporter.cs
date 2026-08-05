@@ -20,7 +20,7 @@ namespace BuildtableSdk
         public static BuildtableBugReporter Instance { get; private set; }
 
         private BuildtableConfig _config;
-        private BuildtableLogBuffer _logBuffer;
+        private BuildtableTelemetry _telemetry;
         private BuildtableReportQueue _queue;
         private BuildtableBugReportOverlay _overlay;
 
@@ -37,6 +37,9 @@ namespace BuildtableSdk
         public BuildtableConfig Config => _config;
         public bool IsOverlayOpen => _overlay != null && _overlay.IsOpen;
         public int PendingReportCount => _queue?.Count ?? 0;
+
+        /// <summary>Batches console output and custom events to <c>/api/v1/events</c>.</summary>
+        public BuildtableTelemetry Telemetry => _telemetry;
 
         private void Awake()
         {
@@ -68,12 +71,10 @@ namespace BuildtableSdk
             }
 
             _queue = new BuildtableReportQueue(_config.maxQueuedReports);
-
-            if (_config.includeRecentLogs && _config.logBufferSize > 0)
-            {
-                _logBuffer = new BuildtableLogBuffer(_config.logBufferSize, _config.includeLogStackTraces);
-                _logBuffer.Start();
-            }
+            // Constructed unconditionally: even with log forwarding off it still
+            // carries Buildtable.LogEvent calls, which are a deliberate act by
+            // the developer rather than ambient capture.
+            _telemetry = new BuildtableTelemetry(_config, this);
         }
 
         private void Start()
@@ -86,7 +87,7 @@ namespace BuildtableSdk
 
         private void OnDestroy()
         {
-            _logBuffer?.Dispose();
+            _telemetry?.Dispose();
             if (Instance == this) Instance = null;
         }
 
@@ -105,7 +106,20 @@ namespace BuildtableSdk
                 _nextRetryTime = Time.unscaledTime + Mathf.Max(10, _config.retryIntervalSeconds);
                 FlushQueue();
             }
+
+            _telemetry?.Tick();
         }
+
+        /// <summary>
+        /// On mobile a paused app may never be resumed, so this is the last
+        /// chance to ship what's buffered.
+        /// </summary>
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused) _telemetry?.FlushBeforeSuspend();
+        }
+
+        private void OnApplicationQuit() => _telemetry?.FlushBeforeSuspend();
 
         /// <summary>Captures the frame behind the UI, then opens the report overlay.</summary>
         public void Show()
@@ -149,21 +163,10 @@ namespace BuildtableSdk
                 return;
             }
 
+            // The description is exactly what the tester typed. Logs travel as
+            // structured events and are correlated in the viewer by time, install
+            // id, and version — not by being stapled onto prose.
             var description = draft.Description ?? "";
-            if (draft.IncludeLogs && _logBuffer != null)
-            {
-                var logs = _logBuffer.Snapshot();
-                if (!string.IsNullOrEmpty(logs))
-                {
-                    // Stopgap: the tail rides along in the description where a
-                    // developer will actually see it. POST /api/v1/events already
-                    // accepts structured log_batch payloads server-side — moving
-                    // logs there is Milestone C's job, not this path's.
-                    description = string.IsNullOrEmpty(description)
-                        ? "Recent logs:\n" + logs
-                        : description + "\n\n--- Recent logs ---\n" + logs;
-                }
-            }
 
             var report = new BuildtableQueuedReport
             {
@@ -185,6 +188,10 @@ namespace BuildtableSdk
 
             if (!string.IsNullOrEmpty(draft.ReporterName)) BuildtableInstall.ReporterName = draft.ReporterName;
             if (!string.IsNullOrEmpty(draft.ReporterEmail)) BuildtableInstall.ReporterEmail = draft.ReporterEmail;
+
+            // Ship the log tail now rather than on the next timer tick — the
+            // lines leading up to a report are the ones worth having beside it.
+            _telemetry?.Flush();
 
             FlushQueue();
         }
@@ -303,6 +310,15 @@ namespace BuildtableSdk
             if (bugResult.Success)
             {
                 _queue.Remove(report);
+
+                // A marker in the event stream so the viewer can line a bug up
+                // against the logs around it without a bug_id column. Only when
+                // logs are flowing anyway — otherwise there's nothing to line up.
+                if (_telemetry != null && _telemetry.LogForwardingActive && !string.IsNullOrEmpty(bugId))
+                {
+                    _telemetry.LogEvent("bug_reported", new Dictionary<string, string> { { "bugId", bugId } });
+                }
+
                 ReportSubmitted?.Invoke(bugId);
                 onTransientFailure?.Invoke(false);
                 yield break;

@@ -99,6 +99,36 @@ namespace BuildtableSdk
         public static void FlushPendingReports() => BuildtableBugReporter.Instance?.FlushQueue();
 
         /// <summary>
+        /// True when console output is actually being forwarded — that is,
+        /// <see cref="BuildtableConfig.forwardLogs"/> is on <em>and</em> this is a
+        /// development build (or the release escape hatch is set).
+        /// </summary>
+        public static bool LogForwardingActive =>
+            BuildtableBugReporter.Instance?.Telemetry?.LogForwardingActive ?? false;
+
+        /// <summary>
+        /// Records a custom gameplay event on the project's event stream.
+        ///
+        /// <code>
+        /// Buildtable.LogEvent("level_completed", new Dictionary&lt;string, string&gt; {
+        ///     { "level", "3" }, { "deaths", "2" }
+        /// });
+        /// </code>
+        ///
+        /// Works even with log forwarding off: calling this is an explicit
+        /// decision, unlike ambient console capture.
+        /// </summary>
+        public static void LogEvent(string name, Dictionary<string, string> fields = null) =>
+            Initialize()?.Telemetry?.LogEvent(name, fields);
+
+        /// <summary>
+        /// Sends buffered log lines and events immediately instead of waiting for
+        /// the flush timer. Worth calling before a scripted quit or a level load
+        /// you expect to be slow.
+        /// </summary>
+        public static void FlushLogs() => BuildtableBugReporter.Instance?.Telemetry?.Flush();
+
+        /// <summary>
         /// Pre-fills the reporter fields, e.g. from your own account system.
         /// Persisted across sessions.
         /// </summary>

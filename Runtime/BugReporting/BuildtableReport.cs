@@ -30,9 +30,6 @@ namespace BuildtableSdk
         /// <summary>JPEG bytes. Null sends a text-only report.</summary>
         public byte[] Screenshot;
 
-        /// <summary>Attach the recent console tail. Ignored when the log buffer is off.</summary>
-        public bool IncludeLogs = true;
-
         /// <summary>
         /// Values for custom fields defined on the project's bug board. Keys the
         /// project hasn't defined are dropped server-side, so sending an unknown

@@ -1,25 +1,35 @@
 # Buildtable SDK for Unity
 
-In-game bug reporting for [Buildtable](https://buildtable.app). A tester presses a
-key, describes what went wrong, and the report — with a screenshot, the recent
-log tail, and full device details — lands on your project's bug board.
+In-game bug reporting and log forwarding for [Buildtable](https://buildtable.app).
+A tester presses a key, describes what went wrong, and the report — with a
+screenshot and full device details — lands on your project's bug board. Turn on
+log forwarding and the console output around it gets there too, without a line of
+code in your game.
 
 Requires Unity **2021.3 LTS** or newer.
 
-> **Status:** Milestone A (bug reporting). Playtest forms, telemetry/events, and
-> the build-registration hook are planned — see [Roadmap](#roadmap).
+> **Status:** Milestone A (bug reporting) and C (log/event forwarding). Playtest
+> forms and the build-registration hook are planned — see [Roadmap](#roadmap).
 
 ---
 
 ## Install
 
-Package Manager → **Add package from git URL…**:
+In Unity: **Window → Package Manager → + → Add package from git URL…**, paste
+this, and hit **Add**:
 
 ```
 https://github.com/etchro/buildtable-unity.git
 ```
 
-Or add it to `Packages/manifest.json`:
+That's it — no download, no unzipping, no `.unitypackage`. Unity fetches it and
+it shows up under *Packages* in your Project window. Updating later is
+**Package Manager → Buildtable SDK → Update**.
+
+<details>
+<summary>Prefer editing the manifest, or pinning a version?</summary>
+
+Add it to `Packages/manifest.json` yourself:
 
 ```json
 {
@@ -29,7 +39,14 @@ Or add it to `Packages/manifest.json`:
 }
 ```
 
-Pin a release by appending `#v0.1.0`.
+Append `#v0.2.0` (or any tag) to pin a specific release instead of tracking
+`main`. Recommended once you're past prototyping — an unpinned git dependency can
+change under you mid-playtest.
+</details>
+
+**Requires git on your machine.** Unity shells out to it for git-URL packages. If
+Package Manager says *"No 'git' executable was found"*, install
+[Git](https://git-scm.com/downloads) and restart Unity.
 
 ## Setup
 
@@ -54,6 +71,39 @@ and nothing else.
 **Secret** keys (`bt_secret_…`) can read your bug list and register builds. They
 belong in EditorPrefs or a CI environment variable, never in a shipped asset.
 The config inspector flags a secret key as an error if one gets pasted in.
+
+### Your key lives in your game's repo
+
+`BuildtableConfig.asset` is a normal Unity asset, so it gets committed with your
+project. If your **game** repo is public, treat that ingest key as public too —
+which is the same assumption you should already be making, since the asset ships
+inside every build.
+
+That's survivable by design (an ingest key can only file bugs and upload
+attachments) but it isn't free: anyone holding it can post junk to your board. So:
+
+- **Give each collaborator their own ingest key.** Then a leaked or noisy one gets
+  revoked on its own, without breaking everyone else's builds.
+- **Rotate the key** if a build gets wider distribution than you planned.
+- Don't reuse one key across unrelated projects.
+
+If you'd rather keep the key out of source control entirely, turn **`autoStart`
+off** in the asset, leave `ingestApiKey` empty, and start the SDK yourself once
+you've supplied the key from wherever you do keep it:
+
+```csharp
+[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+static void ConfigureBuildtable()
+{
+    Buildtable.Config.ingestApiKey = MyBuildSecrets.BuildtableKey;
+    Buildtable.Initialize();
+}
+```
+
+`autoStart` must be off for this: with it on, the SDK initialises from its own
+`BeforeSceneLoad` hook and the order between the two is undefined. Note this
+writes to the config asset in memory — harmless in a player, but in the Editor
+it will dirty the asset, so guard it with `#if !UNITY_EDITOR` if that bothers you.
 
 ## Usage
 
@@ -93,21 +143,100 @@ Buildtable.Initialize().ReportFailed    += reason => Debug.LogWarning(reason);
 | Title, description, steps, priority | The tester |
 | Reporter name / email | Remembered between sessions |
 | Screenshot | Frame captured *before* the form is drawn, downscaled and JPEG-encoded |
-| Recent logs | Ring buffer of `Application.logMessageReceivedThreaded`, appended to the description — **off by default** |
 | Device info | `SystemInfo` + `Application`: OS, CPU, GPU, memory, resolution, quality level, scene, playtime |
 | Custom fields | Whatever you set with `Buildtable.SetCustomField` |
 | Version | From the build stamp, when one exists (see Roadmap → Milestone D) |
 
-### Log forwarding is opt-in
+The description is exactly what the tester typed. Logs are **not** stapled onto
+it — they travel separately as structured events and are correlated in the viewer
+by time, install id, and version.
 
-`includeRecentLogs` defaults to **off**. A log tail can contain player names,
-absolute file paths, and anything else your game happens to log, so it is only
-attached once you turn it on in the config.
+## Log forwarding
 
-When it is on, the tail rides along in the description. That is a stopgap: the
-API's `/api/v1/events` endpoint accepts `log_batch` and `crash` events with a
-structured payload, and moving logs there — batched, out of the description, and
-attributable to a session — is the next thing worth building.
+Tick **Forward logs** in the config. That's the whole integration:
+
+```
+Forward logs                    ✔
+Minimum forwarded level         Warning
+```
+
+You don't wrap `Debug.Log`, you don't route anything through a Buildtable
+logger, and you don't touch your game code. The SDK subscribes to
+`Application.logMessageReceivedThreaded`, which is Unity's process-wide log sink —
+so it already sees:
+
+- every `Debug.Log`, `Debug.LogWarning`, `Debug.LogError`, `Debug.LogException`
+- every **uncaught exception**, with its stack trace
+- failed `Debug.Assert` calls
+- logs from **third-party packages and plugins**, which never knew Buildtable existed
+- logs from background threads and jobs, not just the main thread
+
+If your game already logs its errors, it is already instrumented.
+
+```csharp
+// Nothing Buildtable-specific — this is forwarded as-is
+Debug.LogError($"Elevator {id} never opened after cutscene");
+```
+
+### What gets sent, and when
+
+Lines are batched in memory and posted to `/api/v1/events` every 30 seconds
+(`logFlushIntervalSeconds`). Uncaught exceptions don't wait — they're sent
+immediately as a `crash` event, because the process is often about to die. A
+batch is also sent when the buffer fills, when a bug report is filed, and when
+the app is paused or quit.
+
+`minimumForwardedLevel` decides how much noise you take. `Warning` (the default)
+catches problems without shipping every frame's `Debug.Log`; `Log` forwards
+everything; `Error` forwards only failures. Stack traces attach to errors,
+assertions, and exceptions only — never to ordinary log lines.
+
+### Release builds can't leak logs
+
+Forwarding is active only when:
+
+```csharp
+forwardLogs && (Debug.isDebugBuild || forwardLogsInReleaseBuilds)
+```
+
+`Debug.isDebugBuild` is true in the Editor and in any player built with
+**Development Build** ticked. So a shipped release build **cannot** forward logs
+even if `forwardLogs` is left on in the asset — you'd have to deliberately set a
+second, separately named flag. When the gate is closed the SDK never subscribes
+to the log callback at all: no buffer, no allocation, no per-line cost.
+
+### Privacy and cost
+
+Logs are whatever your game logs, so check that isn't player names or absolute
+file paths before you turn this on. Buildtable **deletes forwarded logs after 7
+days** — they're diagnostic, not a record.
+
+Nothing is written to disk. A batch that can't be delivered is dropped and the
+flush interval doubles (up to 5 minutes) until the network comes back. Bug
+reports are precious and survive a crash; logs are cheap and don't. The one
+exception is a `crash` event, which gets a single reusable slot on disk and one
+retry on next launch.
+
+Memory is bounded by `maxBufferedLines` (default 500). A game in an error loop
+drops its oldest lines and reports `droppedLines` in the batch rather than
+growing without limit.
+
+### Custom events
+
+For gameplay milestones rather than console output:
+
+```csharp
+Buildtable.LogEvent("level_completed", new Dictionary<string, string> {
+    { "level", "3" },
+    { "deaths", "2" },
+});
+
+Buildtable.FlushLogs();               // send now, e.g. before a scripted quit
+bool on = Buildtable.LogForwardingActive;  // did the debug-build gate open?
+```
+
+`LogEvent` works even with `forwardLogs` off — calling it is an explicit decision,
+unlike ambient console capture.
 
 ## Customising the form
 
@@ -181,7 +310,13 @@ it with **Tools → Buildtable → Reset Install Id**.
 | `maxScreenshotDimension` | 1920 | Longest edge; keeps files well under the 5 MB server cap |
 | `screenshotQuality` | 85 | JPEG quality |
 | `includeDeviceInfo` | on | |
-| `includeRecentLogs` / `logBufferSize` | **off** / 100 | Opt-in; see above |
+| `forwardLogs` | **off** | Opt-in; see [Log forwarding](#log-forwarding) |
+| `forwardLogsInReleaseBuilds` | **off** | Leave off unless you mean it |
+| `minimumForwardedLevel` | `Warning` | `Log` \| `Warning` \| `Error` \| `Exception` |
+| `logFlushIntervalSeconds` | 30 | 5–300. Exceptions ignore it and send at once |
+| `maxLinesPerBatch` | 200 | Contract cap |
+| `maxBufferedLines` | 500 | Oldest dropped past the cap |
+| `forwardStackTraces` | on | Errors, assertions, and exceptions only regardless |
 | `maxQueuedReports` | 25 | Oldest dropped past the cap |
 | `retryIntervalSeconds` | 60 | Sweep interval; failures back off exponentially from it |
 | `maxSendAttempts` | 10 | Report discarded after this many failures |
@@ -201,7 +336,7 @@ your own input handling instead.
 
 - **A — bug reporter** — shipped in 0.1.0
 - **B — playtest forms** — fetch a session's schema from `/api/v1/playtests/active`, render it natively, submit at quit or checkpoint
-- **C — auto-capture** — log/crash batches and custom events via `/api/v1/events`. The endpoint is already live server-side (`log_batch`, `crash`, `custom`, batches of up to 100); only the Unity side is missing. Opt-in stays the default — the capability exists for when it's wanted, not to stream everything by default
+- **C — auto-capture** — done: `log_batch`, `crash`, and `custom` events via `/api/v1/events`. Sessions (`sessionId`) land with Milestone B
 - **D — build hook** — `IPreprocessBuildWithReport` registers the build via `/api/v1/builds` with a secret key and stamps the id into StreamingAssets, so every payload is version-tagged. The runtime reader for that stamp already ships
 - **E — Editor bug browser** — read the board from `GET /api/v1/bugs`
 

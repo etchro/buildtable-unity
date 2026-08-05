@@ -60,6 +60,20 @@ namespace BuildtableSdk
             return this;
         }
 
+        /// <summary>
+        /// Splices an already-serialized fragment in as an array element. Used to
+        /// assemble an events request from event objects that were serialized
+        /// when they happened, not when they're sent. The caller owns validity.
+        /// </summary>
+        public BuildtableJson RawElement(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return this;
+            Separate();
+            _sb.Append(json);
+            MarkWritten();
+            return this;
+        }
+
         /// <summary>Writes a string field, skipping it entirely when null or empty.</summary>
         public BuildtableJson StringIfSet(string key, string value)
         {

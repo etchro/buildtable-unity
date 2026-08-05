@@ -60,16 +60,36 @@ namespace BuildtableSdk
         [Tooltip("Attach SystemInfo details (OS, GPU, memory, resolution) to every report.")]
         public bool includeDeviceInfo = true;
 
-        [Tooltip("Attach the most recent console lines to every report. Off by default: log tails can contain " +
-                 "player names, file paths, and anything else your game logs, so forwarding them is opt-in.")]
-        public bool includeRecentLogs = false;
+        [Header("Log forwarding")]
+        [Tooltip("Stream console output to Buildtable. Nothing in your game has to call anything — every " +
+                 "Debug.Log/LogWarning/LogError and every uncaught exception is captured automatically. " +
+                 "Off by default: logs can contain player names, file paths, and anything else your game " +
+                 "logs, so it should be a decision rather than a default.")]
+        public bool forwardLogs = false;
 
-        [Tooltip("How many log lines to keep in the ring buffer.")]
-        [Range(0, 500)]
-        public int logBufferSize = 100;
+        [Tooltip("Also forward from non-development builds. Leave OFF: with it off, a shipped release build " +
+                 "cannot send logs even if 'Forward logs' is left on in this asset.")]
+        public bool forwardLogsInReleaseBuilds = false;
 
-        [Tooltip("Also record stack traces for errors and exceptions. Off keeps payloads small.")]
-        public bool includeLogStackTraces = true;
+        [Tooltip("Lowest severity worth forwarding. 'Warning' catches problems without the noise of every " +
+                 "Debug.Log; 'Log' forwards everything; 'Error' forwards only failures.")]
+        public BuildtableLogLevel minimumForwardedLevel = BuildtableLogLevel.Warning;
+
+        [Tooltip("Seconds between log batches. Uncaught exceptions ignore this and send immediately.")]
+        [Range(5, 300)]
+        public int logFlushIntervalSeconds = 30;
+
+        [Tooltip("Most lines packed into a single batch.")]
+        [Range(10, 200)]
+        public int maxLinesPerBatch = 200;
+
+        [Tooltip("Ceiling on lines held in memory between flushes. Past it the oldest are dropped, so a " +
+                 "runaway error loop costs a fixed amount of memory.")]
+        [Range(50, 2000)]
+        public int maxBufferedLines = 500;
+
+        [Tooltip("Include stack traces. They only attach to errors, assertions, and exceptions regardless.")]
+        public bool forwardStackTraces = true;
 
         [Header("Delivery")]
         [Tooltip("Reports that fail to send are written to disk and retried. This caps how many are kept.")]

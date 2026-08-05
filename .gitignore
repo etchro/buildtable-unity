@@ -15,3 +15,7 @@ UserSettings/
 .DS_Store
 .vscode/
 .idea/
+
+# Internal planning docs — kept locally, never published to the package repo.
+LOG_FORWARDING_PLAN.md
+*_PLAN.md

@@ -6,6 +6,21 @@ All notable changes to this package are documented here. This project follows
 ## [Unreleased]
 
 ### Added
+- **Log forwarding.** Console output streams to `POST /api/v1/events` as
+  structured `log_batch` events instead of riding along in a bug description.
+  Zero integration: subscribing to `Application.logMessageReceivedThreaded`
+  captures every `Debug.Log*`, every uncaught exception, and anything logged by
+  third-party packages, without a line of game code.
+- Uncaught exceptions are sent immediately as a `crash` event rather than waiting
+  for the flush timer, and get one durable slot on disk so a crash that killed the
+  process is retried on next launch.
+- `Buildtable.LogEvent(name, fields)` for custom gameplay events,
+  `Buildtable.FlushLogs()`, and `Buildtable.LogForwardingActive`.
+- A `bug_reported` event is emitted alongside a filed bug when forwarding is on,
+  so the viewer can line a bug up against the logs around it.
+- `BuildtableApi.PostEvents`, `BuildtableJson.RawElement`, and
+  `BuildtableDeviceInfo.BuildCompactFragment` (a short fragment for events, since
+  the full hardware dump would dwarf the lines it describes).
 - Appearance settings on `BuildtableConfig`: form copy, accent/panel/field/text
   colours, scrim opacity, panel width, and canvas sorting order.
 - Form-field toggles (`showStepsToRepro`, `showPriority`, `showReporterIdentity`).
@@ -17,9 +32,24 @@ All notable changes to this package are documented here. This project follows
 - MIT `LICENSE.md`, plus `license`/`licensesUrl`/`changelogUrl` in `package.json`.
 
 ### Changed
-- **Log forwarding is now opt-in.** `includeRecentLogs` defaults to off — a log
-  tail can carry player names and absolute paths, so it should be a decision, not
-  a default.
+- **Breaking:** the log config is replaced. `includeRecentLogs`,
+  `logBufferSize`, `includeLogStackTraces`, and `BuildtableReportDraft.IncludeLogs`
+  are gone; `forwardLogs`, `forwardLogsInReleaseBuilds`, `minimumForwardedLevel`,
+  `logFlushIntervalSeconds`, `maxLinesPerBatch`, `maxBufferedLines`, and
+  `forwardStackTraces` replace them. 0.1.0 was never released, so there is no
+  migration shim.
+- **Forwarding is opt-in and gated on `Debug.isDebugBuild`.** A shipped release
+  build cannot send logs even with `forwardLogs` left on — that needs a second,
+  separately named flag. With the gate closed the SDK never subscribes to the log
+  callback, so it costs nothing.
+- A bug report's description is now exactly what the tester typed. Logs are
+  correlated in the viewer by time, install id, and version instead.
+- `BuildtableLogBuffer` keeps structured entries (timestamp, level, message,
+  stack) and gained `Drain()`. `Snapshot()` remains for games that want to show a
+  log tail in their own debug UI.
+- Failed log batches are dropped rather than queued, and the flush interval backs
+  off to 5 minutes. Logs deliberately do not use the durable report queue — that
+  is what stops a dead server filling a player's disk with telemetry.
 - The overlay's layout is computed rather than hand-tuned, and the panel is sized
   to its content.
 

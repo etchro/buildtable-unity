@@ -58,6 +58,25 @@ namespace BuildtableSdk.Editor
                     MessageType.Warning);
             }
 
+            if (config.forwardLogs)
+            {
+                EditorGUILayout.HelpBox(
+                    "Console output will be sent to Buildtable — every Debug.Log at or above " +
+                    $"'{config.minimumForwardedLevel}', plus uncaught exceptions, with no changes to your game code. " +
+                    "Whatever your game logs is what gets forwarded, so check it doesn't include player names, " +
+                    "absolute file paths, or anything else you wouldn't put on the board. Logs are deleted " +
+                    "server-side after 7 days.",
+                    MessageType.Info);
+            }
+
+            if (config.forwardLogsInReleaseBuilds)
+            {
+                EditorGUILayout.HelpBox(
+                    "Release builds will forward logs too. Without this, forwarding is limited to the Editor " +
+                    "and Development Builds — which is what you want for anything you ship to players.",
+                    config.forwardLogs ? MessageType.Warning : MessageType.Info);
+            }
+
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Install id (this machine)", BuildtableInstall.InstallId);
             if (GUILayout.Button("Open pending report folder")) BuildtableConfigMenu.OpenPendingFolder();

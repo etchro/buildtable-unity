@@ -43,6 +43,9 @@ namespace BuildtableSdk
         [Serializable] private class BugEnvelope { public BugData data; }
         [Serializable] private class BugData { public string id; public string status; }
 
+        [Serializable] private class EventsEnvelope { public EventsData data; }
+        [Serializable] private class EventsData { public int accepted; }
+
         /// <summary>
         /// POST /api/v1/uploads — multipart screenshot upload. Returns the
         /// storage path to pass as an <c>attachments</c> entry on the bug.
@@ -104,6 +107,40 @@ namespace BuildtableSdk
                 var result = Interpret(request);
                 var bugId = result.Success ? SafeParse<BugEnvelope>(result.Body)?.data?.id : null;
                 onDone?.Invoke(result, bugId);
+            }
+        }
+
+        /// <summary>
+        /// POST /api/v1/events — telemetry batch. Returns how many events the
+        /// server accepted, or -1 when the response didn't say.
+        ///
+        /// Unlike a bug report, an event is disposable: the caller drops the
+        /// batch on failure rather than persisting it, so this never touches the
+        /// offline queue.
+        /// </summary>
+        public static IEnumerator PostEvents(
+            BuildtableConfig config,
+            string jsonBody,
+            Action<BuildtableApiResult, int> onDone)
+        {
+            using (var request = new UnityWebRequest($"{config.ApiRoot}/api/v1/events", UnityWebRequest.kHttpVerbPOST))
+            {
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(jsonBody));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                ApplyAuth(request, config);
+                request.timeout = config.requestTimeoutSeconds;
+                yield return request.SendWebRequest();
+
+                var result = Interpret(request);
+                var accepted = -1;
+                if (result.Success)
+                {
+                    var envelope = SafeParse<EventsEnvelope>(result.Body);
+                    if (envelope?.data != null) accepted = envelope.data.accepted;
+                }
+
+                onDone?.Invoke(result, accepted);
             }
         }
 
