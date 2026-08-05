@@ -3,7 +3,7 @@
 All notable changes to this package are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-08-05
 
 ### Added
 - **Log forwarding.** Console output streams to `POST /api/v1/events` as
