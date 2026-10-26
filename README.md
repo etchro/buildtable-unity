@@ -1,96 +1,60 @@
 # Buildtable SDK for Unity
 
 In-game bug reporting and log forwarding for [Buildtable](https://buildtable.app).
-A tester presses a key, describes what went wrong, and the report — with a
-screenshot and full device details — lands on your project's bug board. Turn on
-log forwarding and the console output around it gets there too, without a line of
-code in your game.
+A tester presses a key, describes the problem, and the report lands on your
+project's bug board with a screenshot and device details. With log forwarding on,
+the console output around it gets there too.
 
 Requires Unity **2021.3 LTS** or newer.
 
-> **Status:** Milestone A (bug reporting) and C (log/event forwarding). Playtest
-> forms and the build-registration hook are planned — see [Roadmap](#roadmap).
-
----
-
 ## Install
 
-In Unity: **Window → Package Manager → + → Add package from git URL…**, paste
-this, and hit **Add**:
+In Unity: **Window → Package Manager → + → Add package from git URL…**, then paste:
 
 ```
-https://github.com/etchro/buildtable-unity.git#v0.2.0
+https://github.com/etchro/buildtable-unity.git#v0.3.0
 ```
 
-That's it — no download, no unzipping, no `.unitypackage`. Unity fetches it and
-it shows up under *Packages* in your Project window. To update later, paste the
-URL again with the new tag — releases are listed in the
-[changelog](CHANGELOG.md).
-
-<details>
-<summary>Prefer editing the manifest, or pinning a version?</summary>
-
-Add it to `Packages/manifest.json` yourself:
+Or add it to `Packages/manifest.json`:
 
 ```json
 {
   "dependencies": {
-    "app.buildtable.sdk": "https://github.com/etchro/buildtable-unity.git#v0.2.0"
+    "app.buildtable.sdk": "https://github.com/etchro/buildtable-unity.git#v0.3.0"
   }
 }
 ```
 
-Drop the `#v0.2.0` to track `main` instead of a pinned release. Not recommended
-once you're past prototyping — an unpinned git dependency can change under you
-mid-playtest.
-</details>
-
-**Requires git on your machine.** Unity shells out to it for git-URL packages. If
-Package Manager says *"No 'git' executable was found"*, install
-[Git](https://git-scm.com/downloads) and restart Unity.
+To update, change the tag. Releases are listed in the [changelog](CHANGELOG.md).
+Unity needs [Git](https://git-scm.com/downloads) installed to fetch git-URL
+packages.
 
 ## Setup
 
 1. In Buildtable, open **your project → Settings → API keys** and create an
-   **ingest** key. Copy it — the plaintext is shown once.
+   **ingest** key. The plaintext is shown once.
 2. In Unity, run **Tools → Buildtable → Create or Select Config**. This creates
    `Assets/Resources/BuildtableConfig.asset`.
 3. Paste the key into **Ingest API key**. Leave **API base URL** as
    `https://buildtable.app` unless you self-host.
 4. Press Play and hit **F8**.
 
-That's the whole setup. With `Auto start` on (the default) the SDK spawns itself
-before the first scene loads — nothing to add to a scene, no prefab to drag.
+With `autoStart` on (the default) the SDK starts itself before the first scene
+loads. Nothing needs to be added to a scene.
 
-### Ingest keys vs secret keys
+### Keys
 
-Only ever put an **ingest** key (`bt_ingest_…`) in the config asset. That asset
-is serialized into your build, so anything in it should be assumed extractable.
-Ingest keys are write-only by design: they can file bugs and upload attachments,
-and nothing else.
+Only put an **ingest** key (`bt_ingest_…`) in the config asset. The asset ships
+inside every build, so treat the key as public: it can file bugs and upload
+attachments, nothing else. **Secret** keys (`bt_secret_…`) can read your board
+and must never go in a shipped asset; the config inspector flags one as an error.
 
-**Secret** keys (`bt_secret_…`) can read your bug list and register builds. They
-belong in EditorPrefs or a CI environment variable, never in a shipped asset.
-The config inspector flags a secret key as an error if one gets pasted in.
+Since anyone holding an ingest key can post to your board, give each collaborator
+their own key, rotate it if a build spreads further than planned, and don't share
+one key across projects.
 
-### Your key lives in your game's repo
-
-`BuildtableConfig.asset` is a normal Unity asset, so it gets committed with your
-project. If your **game** repo is public, treat that ingest key as public too —
-which is the same assumption you should already be making, since the asset ships
-inside every build.
-
-That's survivable by design (an ingest key can only file bugs and upload
-attachments) but it isn't free: anyone holding it can post junk to your board. So:
-
-- **Give each collaborator their own ingest key.** Then a leaked or noisy one gets
-  revoked on its own, without breaking everyone else's builds.
-- **Rotate the key** if a build gets wider distribution than you planned.
-- Don't reuse one key across unrelated projects.
-
-If you'd rather keep the key out of source control entirely, turn **`autoStart`
-off** in the asset, leave `ingestApiKey` empty, and start the SDK yourself once
-you've supplied the key from wherever you do keep it:
+To keep the key out of source control, turn `autoStart` off, leave
+`ingestApiKey` empty, and supply it yourself:
 
 ```csharp
 [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -101,10 +65,9 @@ static void ConfigureBuildtable()
 }
 ```
 
-`autoStart` must be off for this: with it on, the SDK initialises from its own
-`BeforeSceneLoad` hook and the order between the two is undefined. Note this
-writes to the config asset in memory — harmless in a player, but in the Editor
-it will dirty the asset, so guard it with `#if !UNITY_EDITOR` if that bothers you.
+`autoStart` must be off, or the SDK's own startup hook may run first. In the
+Editor this dirties the config asset; wrap it in `#if !UNITY_EDITOR` if that
+matters.
 
 ## Usage
 
@@ -114,7 +77,7 @@ using BuildtableSdk;
 // Open the report form (captures the frame behind it first)
 Buildtable.ShowBugReporter();
 
-// Or file one with no UI — from a crash handler, a pause menu, an automated test
+// Or file a report with no UI
 Buildtable.SubmitBugReport(new BuildtableReportDraft
 {
     Title = "Elevator softlock on floor 3",
@@ -126,105 +89,63 @@ Buildtable.SubmitBugReport(new BuildtableReportDraft
 // Pre-fill the reporter fields from your own account system
 Buildtable.SetReporter("Ana", "ana@studio.example");
 
-// How many reports are still waiting to reach the server
+// Reports still waiting to reach the server
 Debug.Log(Buildtable.PendingReportCount);
-```
 
-Subscribe to delivery outcomes if you want your own confirmation UI:
-
-```csharp
+// Delivery outcomes, for your own confirmation UI
 Buildtable.Initialize().ReportSubmitted += bugId => Debug.Log($"Filed {bugId}");
 Buildtable.Initialize().ReportFailed    += reason => Debug.LogWarning(reason);
 ```
 
-## What ends up in a report
+### What a report contains
 
 | Field | Source |
 |---|---|
 | Title, description, steps, priority | The tester |
 | Reporter name / email | Remembered between sessions |
-| Screenshot | Frame captured *before* the form is drawn, downscaled and JPEG-encoded |
-| Device info | `SystemInfo` + `Application`: OS, CPU, GPU, memory, resolution, quality level, scene, playtime |
-| Custom fields | Whatever you set with `Buildtable.SetCustomField` |
-| Version | From the build stamp, when one exists (see Roadmap → Milestone D) |
+| Screenshot | Frame captured before the form is drawn, downscaled, JPEG |
+| Device info | OS, CPU, GPU, memory, resolution, quality level, scene, playtime |
+| Custom fields | Set with `Buildtable.SetCustomField` |
+| Version | From `StreamingAssets/buildtable-build.json`, when present |
 
-The description is exactly what the tester typed. Logs are **not** stapled onto
-it — they travel separately as structured events and are correlated in the viewer
-by time, install id, and version.
+Logs are not appended to the description. They travel as separate events and
+are matched to the report by time, install id, and version.
+
+### Custom fields
+
+```csharp
+Buildtable.SetCustomField("branch", "feature/elevators");
+Buildtable.SetCustomField("saveSlot", saveSlot.ToString());
+```
+
+Keys must match a custom field on your project's bug board; the server drops
+unknown keys. Values set on a draft's `CustomFields` override these defaults.
 
 ## Log forwarding
 
-Tick **Forward logs** in the config. That's the whole integration:
+Tick **Forward logs** in the config. The SDK listens to
+`Application.logMessageReceivedThreaded`, so it picks up every `Debug.Log*`
+call, uncaught exceptions, failed asserts, and logs from third-party packages
+and background threads, with no changes to your code.
 
-```
-Forward logs                    ✔
-Minimum forwarded level         Warning
-```
+- **Batching.** Lines are posted to `/api/v1/events` every 30 seconds
+  (`logFlushIntervalSeconds`), when the buffer fills, when a bug is filed, and
+  on pause or quit. Uncaught exceptions are sent immediately as a `crash` event.
+- **Level.** `minimumForwardedLevel` defaults to `Warning`. Stack traces are
+  attached to errors, asserts, and exceptions only.
+- **Release builds.** Forwarding runs only when
+  `forwardLogs && (Debug.isDebugBuild || forwardLogsInReleaseBuilds)`. A release
+  build doesn't forward unless you set the second flag, and when off the SDK
+  doesn't subscribe to the log callback at all.
+- **Offline.** Logs aren't written to disk. A batch that fails is dropped and
+  the flush interval backs off (up to 5 minutes). The exception is a `crash`
+  event, which gets one slot on disk and one retry on next launch.
+- **Memory.** Capped at `maxBufferedLines` (500); the oldest lines are dropped
+  and counted in `droppedLines`.
+- **Privacy.** Logs contain whatever your game logs, so check for player names
+  and file paths first. Buildtable deletes forwarded logs after 7 days.
 
-You don't wrap `Debug.Log`, you don't route anything through a Buildtable
-logger, and you don't touch your game code. The SDK subscribes to
-`Application.logMessageReceivedThreaded`, which is Unity's process-wide log sink —
-so it already sees:
-
-- every `Debug.Log`, `Debug.LogWarning`, `Debug.LogError`, `Debug.LogException`
-- every **uncaught exception**, with its stack trace
-- failed `Debug.Assert` calls
-- logs from **third-party packages and plugins**, which never knew Buildtable existed
-- logs from background threads and jobs, not just the main thread
-
-If your game already logs its errors, it is already instrumented.
-
-```csharp
-// Nothing Buildtable-specific — this is forwarded as-is
-Debug.LogError($"Elevator {id} never opened after cutscene");
-```
-
-### What gets sent, and when
-
-Lines are batched in memory and posted to `/api/v1/events` every 30 seconds
-(`logFlushIntervalSeconds`). Uncaught exceptions don't wait — they're sent
-immediately as a `crash` event, because the process is often about to die. A
-batch is also sent when the buffer fills, when a bug report is filed, and when
-the app is paused or quit.
-
-`minimumForwardedLevel` decides how much noise you take. `Warning` (the default)
-catches problems without shipping every frame's `Debug.Log`; `Log` forwards
-everything; `Error` forwards only failures. Stack traces attach to errors,
-assertions, and exceptions only — never to ordinary log lines.
-
-### Release builds can't leak logs
-
-Forwarding is active only when:
-
-```csharp
-forwardLogs && (Debug.isDebugBuild || forwardLogsInReleaseBuilds)
-```
-
-`Debug.isDebugBuild` is true in the Editor and in any player built with
-**Development Build** ticked. So a shipped release build **cannot** forward logs
-even if `forwardLogs` is left on in the asset — you'd have to deliberately set a
-second, separately named flag. When the gate is closed the SDK never subscribes
-to the log callback at all: no buffer, no allocation, no per-line cost.
-
-### Privacy and cost
-
-Logs are whatever your game logs, so check that isn't player names or absolute
-file paths before you turn this on. Buildtable **deletes forwarded logs after 7
-days** — they're diagnostic, not a record.
-
-Nothing is written to disk. A batch that can't be delivered is dropped and the
-flush interval doubles (up to 5 minutes) until the network comes back. Bug
-reports are precious and survive a crash; logs are cheap and don't. The one
-exception is a `crash` event, which gets a single reusable slot on disk and one
-retry on next launch.
-
-Memory is bounded by `maxBufferedLines` (default 500). A game in an error loop
-drops its oldest lines and reports `droppedLines` in the batch rather than
-growing without limit.
-
-### Custom events
-
-For gameplay milestones rather than console output:
+Custom events work even with `forwardLogs` off:
 
 ```csharp
 Buildtable.LogEvent("level_completed", new Dictionary<string, string> {
@@ -232,144 +153,94 @@ Buildtable.LogEvent("level_completed", new Dictionary<string, string> {
     { "deaths", "2" },
 });
 
-Buildtable.FlushLogs();               // send now, e.g. before a scripted quit
-bool on = Buildtable.LogForwardingActive;  // did the debug-build gate open?
+Buildtable.FlushLogs();                     // send now, e.g. before a scripted quit
+bool on = Buildtable.LogForwardingActive;   // is forwarding running in this build?
 ```
-
-`LogEvent` works even with `forwardLogs` off — calling it is an explicit decision,
-unlike ambient console capture.
 
 ## Customising the form
 
-The overlay is built in code, but its look and contents come from the config
-asset rather than the source, so a project can restyle it without forking:
+The form is built in code with uGUI. Its look and fields come from the config
+asset:
 
 | Setting | Purpose |
 |---|---|
-| `formTitle` / `formSubtitle` / `submitButtonLabel` | Copy. An empty subtitle hides the line entirely |
+| `formTitle` / `formSubtitle` / `submitButtonLabel` | Copy. An empty subtitle hides the line |
 | `accentColor` | Submit button, checkmark, selected priority |
 | `panelColor` / `fieldColor` / `textColor` / `mutedTextColor` | The rest of the palette |
-| `scrimOpacity` | How much the game behind is dimmed. 0 leaves it fully visible |
+| `scrimOpacity` | How much the game behind is dimmed |
 | `panelWidth` | Form width in 1920×1080 reference pixels |
-| `cornerRadius` | Rounding of fields and buttons (the panel uses double). 0 gives square corners |
-| `font` | Any `.ttf`/`.otf` Font asset. Empty uses Unity's built-in font |
-| `showSubmitFeedback` | After the form closes, a small notice says whether the report was sent or saved for retry |
-| `sortingOrder` | Raise it if the form lands behind your own UI |
-| `showStepsToRepro` / `showPriority` / `showReporterIdentity` | Drop fields you don't want. The form resizes to fit whatever is left |
+| `cornerRadius` | Rounding of fields and buttons (the panel uses double). 0 is square |
+| `font` | A `.ttf`/`.otf` Font asset. Empty uses Unity's built-in font |
+| `showSubmitFeedback` | After submit, a notice says whether the report was sent or saved for retry |
+| `sortingOrder` | Raise it if the form appears behind your own UI |
+| `showStepsToRepro` / `showPriority` / `showReporterIdentity` | Hide fields. The form resizes to fit |
 
-Attach your own metadata to every report:
+A cancelled form keeps its draft until the report is submitted. Tab moves between
+fields.
 
-```csharp
-Buildtable.SetCustomField("branch", "feature/elevators");
-Buildtable.SetCustomField("saveSlot", saveSlot.ToString());
-```
+For a form this doesn't cover, turn `hotkeyEnabled` off and build your own UI on
+`Buildtable.SubmitBugReport(draft)`. Queueing, retries, and uploads don't depend
+on the overlay.
 
-Keys must match a custom field defined on your project's bug board — the server
-drops values for keys it doesn't recognise. Per-report values can also be passed
-on the draft via `CustomFields`, and those win over the defaults above.
+## Delivery
 
-If you need a form this doesn't cover, turn `hotkeyEnabled` off and build your
-own UI on top of `Buildtable.SubmitBugReport(draft)` — the queue, retry, upload,
-and device-info paths are all independent of the overlay.
+Every report is written to `Application.persistentDataPath/buildtable/pending/`
+before the first network call, so a report survives a crash or quit right after
+submit and is sent on next launch.
 
-## Offline behaviour
+The queue retries every `retryIntervalSeconds` (60) and on startup, backing off
+exponentially up to an hour per report. Offline, timeout, 429, and 5xx responses
+are retried; other 4xx responses are logged and dropped. A report is discarded
+after `maxSendAttempts` (10), and the queue holds at most `maxQueuedReports` (25),
+dropping the oldest.
 
-Every report is written to
-`Application.persistentDataPath/buildtable/pending/` **before** the first network
-call — not after the first failure. A tester who alt-F4s the moment they hit
-submit still gets their report delivered on the next launch.
-
-The queue retries on a timer (default 60s) and on startup. Transient failures
-(offline, timeout, 429, 5xx) are retried; permanent rejections (bad key, invalid
-payload) are logged and dropped rather than retried forever. The queue is capped
-(default 25 reports) so a build pointed at a dead server can't fill a disk.
-
-Each retry backs off exponentially from the sweep interval, capped at an hour,
-and a report is discarded after `maxSendAttempts` (default 10). A server that
-keeps returning 429 therefore costs a bounded number of requests rather than one
-per minute forever.
-
-## Rate limits
-
-Every request carries `X-Buildtable-Client`, a random per-install id stored in
-`PlayerPrefs`. This is what gives each player their own rate-limit budget — an
-ingest key ships inside every copy of the game, so the server can't treat one key
-as one client. Without the header, everyone behind one office NAT would share a
-single bucket.
-
-The id is random, not a device fingerprint, and carries no personal data. Clear
-it with **Tools → Buildtable → Reset Install Id**.
+Every request carries `X-Buildtable-Client`, a random per-install id kept in
+`PlayerPrefs`, so each player gets their own rate-limit budget instead of sharing
+one per IP. It is not a device fingerprint. Reset it with **Tools → Buildtable →
+Reset Install Id**.
 
 ## Configuration reference
 
 | Setting | Default | Notes |
 |---|---|---|
-| `apiBaseUrl` | `https://buildtable.app` | No trailing slash |
+| `apiBaseUrl` | `https://buildtable.app` | |
 | `ingestApiKey` | — | `bt_ingest_…` only |
-| `autoStart` | on | Spawns the reporter before the first scene |
-| `hotkeyEnabled` / `toggleKey` | on / F8 | Turn off to drive it from your own UI |
-| `pauseWhileOpen` | on | `Time.timeScale = 0` while the form is up |
+| `requestTimeoutSeconds` | 20 | |
+| `autoStart` | on | Starts the SDK before the first scene |
+| `hotkeyEnabled` / `toggleKey` | on / F8 | |
+| `pauseWhileOpen` | on | `Time.timeScale = 0` while the form is open |
 | `releaseCursorWhileOpen` | on | Unlocks the cursor, then restores it |
 | `captureScreenshot` | on | |
-| `maxScreenshotDimension` | 1920 | Longest edge; keeps files well under the 5 MB server cap |
+| `maxScreenshotDimension` | 1920 | Longest edge |
 | `screenshotQuality` | 85 | JPEG quality |
 | `includeDeviceInfo` | on | |
-| `forwardLogs` | **off** | Opt-in; see [Log forwarding](#log-forwarding) |
-| `forwardLogsInReleaseBuilds` | **off** | Leave off unless you mean it |
+| `forwardLogs` | **off** | See [Log forwarding](#log-forwarding) |
+| `forwardLogsInReleaseBuilds` | **off** | |
 | `minimumForwardedLevel` | `Warning` | `Log` \| `Warning` \| `Error` \| `Exception` |
-| `logFlushIntervalSeconds` | 30 | 5–300. Exceptions ignore it and send at once |
-| `maxLinesPerBatch` | 200 | Contract cap |
-| `maxBufferedLines` | 500 | Oldest dropped past the cap |
-| `forwardStackTraces` | on | Errors, assertions, and exceptions only regardless |
-| `maxQueuedReports` | 25 | Oldest dropped past the cap. Minimum 1 |
-| `retryIntervalSeconds` | 60 | Sweep interval; failures back off exponentially from it |
-| `maxSendAttempts` | 10 | Report discarded after this many failures |
+| `logFlushIntervalSeconds` | 30 | 5–300 |
+| `maxLinesPerBatch` | 200 | |
+| `maxBufferedLines` | 500 | |
+| `forwardStackTraces` | on | Errors, asserts, and exceptions only |
+| `maxQueuedReports` | 25 | Minimum 1 |
+| `retryIntervalSeconds` | 60 | |
+| `maxSendAttempts` | 10 | |
 
-Appearance and form-field settings are listed under
-[Customising the form](#customising-the-form).
+Appearance settings are under [Customising the form](#customising-the-form).
 
-## Input System support
+## Input System
 
-Works with the legacy Input Manager, the Input System package, or both. In
-Input System-only projects the configured `KeyCode` is mapped onto the new API by
-name via reflection, so the SDK never takes a hard dependency on a package your
-project may not have installed. If a key has no equivalent, open the form from
-your own input handling instead.
+Works with the legacy Input Manager, the Input System package, or both. In Input
+System-only projects the `KeyCode` is mapped to the new API by reflection, so the
+package has no hard dependency on Input System.
 
 ## Roadmap
 
-- **A — bug reporter** — shipped in 0.1.0
-- **B — playtest forms** — fetch a session's schema from `/api/v1/playtests/active`, render it natively, submit at quit or checkpoint
-- **C — auto-capture** — done: `log_batch`, `crash`, and `custom` events via `/api/v1/events`. Sessions (`sessionId`) land with Milestone B
-- **D — build hook** — `IPreprocessBuildWithReport` registers the build via `/api/v1/builds` with a secret key and stamps the id into StreamingAssets, so every payload is version-tagged. The runtime reader for that stamp already ships
-- **E — Editor bug browser** — read the board from `GET /api/v1/bugs`
+- Playtest forms: fetch a session's questions from Buildtable and show them in game
+- Build registration: an Editor build hook that registers each build and writes
+  the version stamp
+- An Editor window for browsing the bug board
 
-## Notes for contributors
+## Contributing
 
-`.meta` files are committed so the package imports cleanly from a git URL. If you
-add a file, let Unity generate its `.meta` and commit that too — a missing one
-makes Unity re-mint GUIDs per consumer.
-
-### Running the tests
-
-The tests live in `Tests/Runtime` and only compile in a project that lists the
-package under `testables`. To run them, point an empty Unity project at your
-checkout:
-
-```json
-"dependencies": {
-  "app.buildtable.sdk": "file:../../buildtable-unity",
-  "com.unity.test-framework": "1.8.0"
-},
-"testables": ["app.buildtable.sdk"]
-```
-
-then use **Window → General → Test Runner → PlayMode**, or run from a shell:
-
-```sh
-Unity -batchmode -projectPath <project> -runTests -testPlatform PlayMode -testResults results.xml
-```
-
-Delivery tests run against a local fake server on `127.0.0.1`. Unity 6 blocks
-plain HTTP by default, so set **Player → Allow downloads over HTTP** to
-*Always allowed* in that project.
+See [AGENTS.md](AGENTS.md) for the repo layout, conventions, and how to run the
+tests.

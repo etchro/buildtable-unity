@@ -4,8 +4,7 @@ using UnityEngine;
 namespace BuildtableSdk
 {
     /// <summary>
-    /// The SDK's public surface. Everything a game needs for Milestone A goes
-    /// through here:
+    /// The SDK's public surface. Everything a game needs goes through here:
     ///
     /// <code>
     /// Buildtable.ShowBugReporter();                 // open the in-game form

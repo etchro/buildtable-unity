@@ -34,7 +34,7 @@ namespace BuildtableSdk
         internal BuildtableReportQueue(int maxReports, string directory)
         {
             // At least 1: reports are only ever sent from the queue, so a cap of
-            // 0 (allowed by the config's old range) silently dropped every one.
+            // 0 would drop every report.
             _maxReports = Mathf.Max(1, maxReports);
             _directory = directory;
         }

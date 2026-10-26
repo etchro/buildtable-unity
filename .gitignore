@@ -1,22 +1,11 @@
-# This repo is a UPM package, not a Unity project — there is no Library/ or
-# Temp/ here. These entries only matter if you drop the package inside a test
-# project for development.
+# Generated if the package is opened directly as a Unity project.
 Library/
 Temp/
-Obj/
-Build/
-Builds/
 Logs/
 UserSettings/
 *.csproj
 *.sln
-*.user
-*.userprefs
+
 .DS_Store
 .vscode/
 .idea/
-
-# Internal planning docs — kept locally, never published to the package repo.
-LOG_FORWARDING_PLAN.md
-*_PLAN.md
-*_PLAN.md.meta

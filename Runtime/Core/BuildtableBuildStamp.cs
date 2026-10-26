@@ -10,11 +10,9 @@ namespace BuildtableSdk
     /// Reads <c>StreamingAssets/buildtable-build.json</c>, if a build hook wrote
     /// one, so every payload can be tagged with the version it came from.
     ///
-    /// The writer is Milestone D (an <c>IPreprocessBuildWithReport</c> that
-    /// registers the build via <c>POST /api/v1/builds</c> with a secret key).
-    /// The reader ships now so reports from a stamped build are version-tagged
-    /// the moment that hook lands, and so the absence of a stamp is a normal,
-    /// silent case rather than an error.
+    /// The writer (a build hook that registers the build via
+    /// <c>POST /api/v1/builds</c>) is not part of the SDK yet, so a missing
+    /// stamp is the normal case and is silent.
     /// </summary>
     [Serializable]
     public class BuildtableBuildStamp

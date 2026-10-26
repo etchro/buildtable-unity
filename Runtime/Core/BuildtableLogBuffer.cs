@@ -177,8 +177,8 @@ namespace BuildtableSdk
 
         /// <summary>
         /// Oldest-first plain-text dump that does <em>not</em> consume the buffer.
-        /// The SDK no longer sends this anywhere — it's here for games that want
-        /// to show a log tail in their own debug UI.
+        /// The SDK doesn't send this; it's for games that show a log tail in
+        /// their own debug UI.
         /// </summary>
         public string Snapshot(int maxCharacters = 8000)
         {
