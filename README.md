@@ -251,6 +251,9 @@ asset rather than the source, so a project can restyle it without forking:
 | `panelColor` / `fieldColor` / `textColor` / `mutedTextColor` | The rest of the palette |
 | `scrimOpacity` | How much the game behind is dimmed. 0 leaves it fully visible |
 | `panelWidth` | Form width in 1920×1080 reference pixels |
+| `cornerRadius` | Rounding of fields and buttons (the panel uses double). 0 gives square corners |
+| `font` | Any `.ttf`/`.otf` Font asset. Empty uses Unity's built-in font |
+| `showSubmitFeedback` | After the form closes, a small notice says whether the report was sent or saved for retry |
 | `sortingOrder` | Raise it if the form lands behind your own UI |
 | `showStepsToRepro` / `showPriority` / `showReporterIdentity` | Drop fields you don't want. The form resizes to fit whatever is left |
 
@@ -318,7 +321,7 @@ it with **Tools → Buildtable → Reset Install Id**.
 | `maxLinesPerBatch` | 200 | Contract cap |
 | `maxBufferedLines` | 500 | Oldest dropped past the cap |
 | `forwardStackTraces` | on | Errors, assertions, and exceptions only regardless |
-| `maxQueuedReports` | 25 | Oldest dropped past the cap |
+| `maxQueuedReports` | 25 | Oldest dropped past the cap. Minimum 1 |
 | `retryIntervalSeconds` | 60 | Sweep interval; failures back off exponentially from it |
 | `maxSendAttempts` | 10 | Report discarded after this many failures |
 
@@ -346,3 +349,27 @@ your own input handling instead.
 `.meta` files are committed so the package imports cleanly from a git URL. If you
 add a file, let Unity generate its `.meta` and commit that too — a missing one
 makes Unity re-mint GUIDs per consumer.
+
+### Running the tests
+
+The tests live in `Tests/Runtime` and only compile in a project that lists the
+package under `testables`. To run them, point an empty Unity project at your
+checkout:
+
+```json
+"dependencies": {
+  "app.buildtable.sdk": "file:../../buildtable-unity",
+  "com.unity.test-framework": "1.8.0"
+},
+"testables": ["app.buildtable.sdk"]
+```
+
+then use **Window → General → Test Runner → PlayMode**, or run from a shell:
+
+```sh
+Unity -batchmode -projectPath <project> -runTests -testPlatform PlayMode -testResults results.xml
+```
+
+Delivery tests run against a local fake server on `127.0.0.1`. Unity 6 blocks
+plain HTTP by default, so set **Player → Allow downloads over HTTP** to
+*Always allowed* in that project.

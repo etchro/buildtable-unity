@@ -26,9 +26,17 @@ namespace BuildtableSdk
         private readonly int _maxReports;
 
         public BuildtableReportQueue(int maxReports)
+            : this(maxReports, Path.Combine(Application.persistentDataPath, "buildtable", "pending"))
         {
-            _maxReports = Mathf.Max(0, maxReports);
-            _directory = Path.Combine(Application.persistentDataPath, "buildtable", "pending");
+        }
+
+        /// <summary>Queue rooted somewhere other than persistentDataPath. Tests use a temp directory.</summary>
+        internal BuildtableReportQueue(int maxReports, string directory)
+        {
+            // At least 1: reports are only ever sent from the queue, so a cap of
+            // 0 (allowed by the config's old range) silently dropped every one.
+            _maxReports = Mathf.Max(1, maxReports);
+            _directory = directory;
         }
 
         public string Directory => _directory;
@@ -39,8 +47,6 @@ namespace BuildtableSdk
         /// <summary>Persists a report and its screenshot. Returns false if nothing could be written.</summary>
         public bool Save(BuildtableQueuedReport report, byte[] screenshot = null)
         {
-            if (_maxReports == 0) return false;
-
             try
             {
                 System.IO.Directory.CreateDirectory(_directory);

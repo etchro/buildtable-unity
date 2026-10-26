@@ -45,6 +45,10 @@ namespace BuildtableSdk
         [Tooltip("Unlock and show the mouse cursor while the overlay is open, then restore it on close.")]
         public bool releaseCursorWhileOpen = true;
 
+        [Tooltip("After the form closes, show a small notice at the bottom of the screen saying whether the " +
+                 "report was sent or saved for a retry. It never blocks input.")]
+        public bool showSubmitFeedback = true;
+
         [Header("Capture")]
         [Tooltip("Grab the frame behind the overlay and attach it to the report.")]
         public bool captureScreenshot = true;
@@ -92,8 +96,10 @@ namespace BuildtableSdk
         public bool forwardStackTraces = true;
 
         [Header("Delivery")]
-        [Tooltip("Reports that fail to send are written to disk and retried. This caps how many are kept.")]
-        [Range(0, 200)]
+        [Tooltip("Every report is written to disk before it is sent, and retried from there if sending fails. " +
+                 "This caps how many are kept; past it the oldest are dropped. Minimum 1, since the queue is " +
+                 "the only path a report is sent from.")]
+        [Range(1, 200)]
         public int maxQueuedReports = 25;
 
         [Tooltip("Seconds between retry sweeps of the offline queue.")]
@@ -118,6 +124,15 @@ namespace BuildtableSdk
         [Tooltip("Width of the form panel in reference pixels (the canvas scales from 1920x1080).")]
         [Range(420, 1400)]
         public float panelWidth = 760f;
+
+        [Tooltip("Corner rounding of fields and buttons, in reference pixels. The panel uses twice this. " +
+                 "0 gives square corners.")]
+        [Range(0, 16)]
+        public int cornerRadius = 6;
+
+        [Tooltip("Font for all form text. Leave empty to use Unity's built-in font. Must be a regular Font " +
+                 "asset (.ttf/.otf), not a TextMeshPro font asset.")]
+        public Font font;
 
         [Tooltip("Buttons, checkmarks, and the selected priority.")]
         public Color accentColor = new Color(0.36f, 0.45f, 0.95f, 1f);

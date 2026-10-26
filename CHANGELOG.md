@@ -3,6 +3,33 @@
 All notable changes to this package are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- A delivery notice after submitting: "Sending report…", then sent, saved for
+  retry, or failed. It sits on its own raycaster-less canvas, so it never blocks
+  input. Toggle with `showSubmitFeedback`.
+- `cornerRadius` and `font` appearance settings.
+- Tab moves between the form's text fields.
+- PlayMode tests for the report queue and the overlay (draft handling, tab
+  order, delivery notices against a local fake server). See "Running the tests"
+  in the README.
+
+### Changed
+- Visual polish on the overlay: rounded corners, a soft panel shadow and border,
+  hover and focus rings on fields and buttons, a drawn checkmark, coloured
+  priority dots, dividers, and a "Contact (optional)" label over the name and
+  email fields. All sprites are generated at runtime; the package still ships no
+  art assets. A failed submit (no title) now focuses the title field.
+
+### Fixed
+- `maxQueuedReports = 0` silently dropped every report: reports are only sent
+  from the disk queue, and a cap of 0 meant nothing was ever written to it. The
+  minimum is now 1, and an existing asset set to 0 is treated as 1.
+- Cancelling the form (button or Escape) threw away everything typed. The draft
+  now stays until it is submitted, including the field that had focus when
+  Escape was pressed.
+
 ## [0.2.0] — 2026-08-05
 
 ### Added
