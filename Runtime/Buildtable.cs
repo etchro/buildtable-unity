@@ -17,7 +17,7 @@ namespace BuildtableSdk
     /// </summary>
     public static class Buildtable
     {
-        public const string SdkVersion = "0.2.0";
+        public const string SdkVersion = "0.3.0";
 
         private static BuildtableConfig _config;
         private static bool _configLoadAttempted;
